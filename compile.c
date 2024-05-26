@@ -4,39 +4,6 @@
 #include <ctype.h>
 #include "cmd.h"
 
-typedef enum
-{
-  langle,
-  langle_slash,
-  rangle,
-  slash_rangle,
-  eq,
-  string,
-  quoted_string,
-  eof,
-} token_type;
-
-typedef struct token
-{
-  token_type type;
-  char *s;
-} token;
-
-typedef struct attr_node
-{
-  token name;
-  token value;
-  struct attr_node *next;
-} attr_node;
-
-typedef struct xml_node
-{
-  token tag;
-  attr_node *attrs;
-  struct xml_node *next;
-  struct xml_node *children;
-} xml_node;
-
 typedef struct char_stream
 {
   int next;
@@ -65,6 +32,23 @@ char *get_string(char_stream *s, char *end)
   return strdup(buffer);
 }
 
+typedef enum
+{
+  langle,
+  langle_slash,
+  rangle,
+  slash_rangle,
+  eq,
+  string,
+  quoted_string,
+  eof,
+} token_type;
+
+typedef struct token
+{
+  token_type type;
+  char *str;
+} token;
 typedef struct token_stream
 {
   token next;
@@ -119,13 +103,13 @@ token read_token(token_stream *s)
     read_char(&s->src);
     char *str = get_string(&s->src, "\"");
     read_char(&s->src);
-    s->next = (token){.type = quoted_string, .s = str};
+    s->next = (token){.type = quoted_string, .str = str};
     break;
   }
   default:
   {
     char *str = get_string(&s->src, " =>");
-    s->next = (token){.type = string, .s = str};
+    s->next = (token){.type = string, .str = str};
     break;
   }
   }
@@ -141,6 +125,21 @@ int accept(token_stream *s, token_type expected, token *dst)
   read_token(s);
   return 1;
 }
+
+typedef struct attr_node
+{
+  token name;
+  token value;
+  struct attr_node *next;
+} attr_node;
+
+typedef struct xml_node
+{
+  token tag;
+  attr_node *attrs;
+  struct xml_node *next;
+  struct xml_node *children;
+} xml_node;
 
 attr_node *attr(token_stream *s)
 {
@@ -206,23 +205,31 @@ xml_node *xml_list(token_stream *s)
 typedef struct cmd_node
 {
   cmd_type type;
-  float x1, y1, x2, y2, x, y;
-  int color;
+  union
+  {
+    int fill_color;
+    int stroke_color;
+    float stroke_width;
+    struct
+    {
+      float x1, y1, x2, y2, x, y;
+    } path;
+  } args;
   struct cmd_node *next;
 } cmd_node;
 
-cmd_node *head, *tail;
-
-void emit(cmd_node *cmd)
+typedef struct cmd_list
 {
-  if (!head)
-  {
-    head = tail = cmd;
-  }
+  cmd_node *head;
+  cmd_node *tail;
+} cmd_list;
+
+void append(cmd_list *l, cmd_node *cmd)
+{
+  if (!l->head)
+    l->head = l->tail = cmd;
   else
-  {
-    tail = tail->next = cmd;
-  }
+    l->tail = l->tail->next = cmd;
 }
 
 int hex(char c)
@@ -239,7 +246,7 @@ int hex(char c)
 int parse_color(char *s)
 {
   int n = strlen(s);
-  if (!n || s[0] != '#')
+  if (n == 0 || s[0] != '#')
     return 0;
   if (n == 4)
     return hex(s[1]) << 20 | hex(s[1]) << 16 | hex(s[2]) << 12 | hex(s[2]) << 8 | hex(s[3]) << 4 | hex(s[3]);
@@ -248,225 +255,301 @@ int parse_color(char *s)
   return 0;
 }
 
-void paint_commands(attr_node *p)
+void emit_paint_commands(cmd_list *l, attr_node *p)
 {
   for (; p; p = p->next)
   {
-    if (strcmp(p->name.s, "fill") == 0)
+    if (strcmp(p->name.str, "fill") == 0)
     {
       cmd_node *cmd = calloc(1, sizeof(cmd_node));
       cmd->type = fill_color;
-      cmd->color = parse_color(p->value.s);
-      emit(cmd);
+      cmd->args.fill_color = parse_color(p->value.str);
+      append(l, cmd);
     }
-    else if (strcmp(p->name.s, "stroke") == 0)
+    else if (strcmp(p->name.str, "stroke") == 0)
     {
       cmd_node *cmd = calloc(1, sizeof(cmd_node));
       cmd->type = stroke_color;
-      cmd->color = parse_color(p->value.s);
-      emit(cmd);
+      cmd->args.stroke_color = parse_color(p->value.str);
+      append(l, cmd);
     }
-    else if (strcmp(p->name.s, "stroke-width") == 0)
+    else if (strcmp(p->name.str, "stroke-width") == 0)
     {
       cmd_node *cmd = calloc(1, sizeof(cmd_node));
       cmd->type = stroke_width;
-      sscanf(p->value.s, "%f", &cmd->x);
-      emit(cmd);
+      sscanf(p->value.str, "%f", &cmd->args.stroke_width);
+      append(l, cmd);
     }
   }
 }
 
-typedef enum
+typedef struct path_token
 {
-  command,
-  number,
-  eos
-} d_token_type;
-
-typedef struct
-{
-  d_token_type type;
+  enum
+  {
+    command,
+    coord,
+    eos
+  } type;
   union
   {
     char c;
     float f;
   } value;
-} d_token;
+} path_token;
 
-void read_token_d(char **pptr, d_token *next_token)
+typedef struct path_token_stream
 {
-  while (**pptr && (isspace(**pptr) || **pptr == ','))
-    ++*pptr;
+  path_token next;
+  char *src;
+} path_token_stream;
 
-  if (!**pptr)
+path_token read_path_token(path_token_stream *s)
+{
+  path_token t = s->next;
+
+  while (isspace(*s->src) || *s->src == ',')
+    ++s->src;
+
+  if (!*s->src)
   {
-    *next_token = (d_token){.type = eos};
+    s->next = (path_token){.type = eos};
   }
-  else if (isalpha(**pptr))
+  else if (isalpha(*s->src))
   {
-    char c = **pptr;
-    ++*pptr;
-    *next_token = (d_token){.type = command, .value.c = c};
+    s->next = (path_token){.type = command, .value.c = *s->src};
+    ++s->src;
   }
   else
   {
-    float f;
     int n;
-    sscanf(*pptr, "%f%n", &f, &n);
-    *pptr += n;
-    *next_token = (d_token){.type = number, .value.f = f};
+    float f;
+    if (sscanf(s->src, "%f%n", &f, &n) == 0)
+      exit(1);
+    s->next = (path_token){.type = coord, .value.f = f};
+    s->src += n;
   }
+  return t;
 }
 
-char accept_command(d_token *next_token, char **pptr)
+char read_command(path_token_stream *s)
 {
-  if (next_token->type != command)
+  path_token t = read_path_token(s);
+  if (t.type != command)
     exit(1);
-  char c = next_token->value.c;
-  read_token_d(pptr, next_token);
-  return c;
+  return t.value.c;
 }
 
-float accept_float(d_token *next_token, char **pptr)
+float read_coord(path_token_stream *s)
 {
-  if (next_token->type != number)
+  path_token t = read_path_token(s);
+  if (t.type != coord)
     exit(1);
-  float f = next_token->value.f;
-  read_token_d(pptr, next_token);
-  return f;
+  return t.value.f;
 }
 
-void stencil_commands(char *ptr)
+void emit_stencil_commands(cmd_list *l, char *d)
 {
-  d_token next_token;
-  read_token_d(&ptr, &next_token);
+  path_token_stream s = {.src = d};
+  read_path_token(&s);
 
   cmd_type cur_type;
   cmd_node *cmd;
-  while (next_token.type != eos)
+
+  while (s.next.type != eos)
   {
-    char c = accept_command(&next_token, &ptr);
+    char c = read_command(&s);
     switch (c)
     {
     case 'M':
     case 'm':
       cur_type = c == 'M' ? move_to : move_to_d;
-      while (next_token.type == number)
+      while (s.next.type == coord)
       {
         cmd = calloc(1, sizeof(cmd_node));
         cmd->type = cur_type;
-        cmd->x = accept_float(&next_token, &ptr);
-        cmd->y = accept_float(&next_token, &ptr);
-        emit(cmd);
+        cmd->args.path.x = read_coord(&s);
+        cmd->args.path.y = read_coord(&s);
+        append(l, cmd);
       }
       break;
 
     case 'L':
     case 'l':
       cur_type = c == 'L' ? line_to : line_to_d;
-      while (next_token.type == number)
+      while (s.next.type == coord)
       {
         cmd = calloc(1, sizeof(cmd_node));
         cmd->type = cur_type;
-        cmd->x = accept_float(&next_token, &ptr);
-        cmd->y = accept_float(&next_token, &ptr);
-        emit(cmd);
+        cmd->args.path.x = read_coord(&s);
+        cmd->args.path.y = read_coord(&s);
+        append(l, cmd);
       }
       break;
 
     case 'V':
     case 'v':
       cur_type = c == 'V' ? v_line_to : v_line_to_d;
-      while (next_token.type == number)
+      while (s.next.type == coord)
       {
         cmd = calloc(1, sizeof(cmd_node));
         cmd->type = cur_type;
-        cmd->y = accept_float(&next_token, &ptr);
-        emit(cmd);
+        cmd->args.path.y = read_coord(&s);
+        append(l, cmd);
       }
       break;
 
     case 'H':
     case 'h':
       cur_type = c == 'H' ? h_line_to : h_line_to_d;
-      while (next_token.type == number)
+      while (s.next.type == coord)
       {
         cmd = calloc(1, sizeof(cmd_node));
         cmd->type = cur_type;
-        cmd->x = accept_float(&next_token, &ptr);
-        emit(cmd);
+        cmd->args.path.x = read_coord(&s);
+        append(l, cmd);
       }
       break;
 
     case 'C':
     case 'c':
       cur_type = c == 'C' ? curve_to : curve_to_d;
-      while (next_token.type == number)
+      while (s.next.type == coord)
       {
         cmd = calloc(1, sizeof(cmd_node));
         cmd->type = cur_type;
-        cmd->x1 = accept_float(&next_token, &ptr);
-        cmd->y1 = accept_float(&next_token, &ptr);
-        cmd->x2 = accept_float(&next_token, &ptr);
-        cmd->y2 = accept_float(&next_token, &ptr);
-        cmd->x = accept_float(&next_token, &ptr);
-        cmd->y = accept_float(&next_token, &ptr);
-        emit(cmd);
+        cmd->args.path.x1 = read_coord(&s);
+        cmd->args.path.y1 = read_coord(&s);
+        cmd->args.path.x2 = read_coord(&s);
+        cmd->args.path.y2 = read_coord(&s);
+        cmd->args.path.x = read_coord(&s);
+        cmd->args.path.y = read_coord(&s);
+        append(l, cmd);
       }
       break;
 
     case 'S':
     case 's':
       cur_type = c == 'S' ? s_curve_to : s_curve_to_d;
-      while (next_token.type == number)
+      while (s.next.type == coord)
       {
         cmd = calloc(1, sizeof(cmd_node));
         cmd->type = cur_type;
-        cmd->x2 = accept_float(&next_token, &ptr);
-        cmd->y2 = accept_float(&next_token, &ptr);
-        cmd->x = accept_float(&next_token, &ptr);
-        cmd->y = accept_float(&next_token, &ptr);
-        emit(cmd);
+        cmd->args.path.x2 = read_coord(&s);
+        cmd->args.path.y2 = read_coord(&s);
+        cmd->args.path.x = read_coord(&s);
+        cmd->args.path.y = read_coord(&s);
+        append(l, cmd);
       }
       break;
 
     case 'z':
       cmd = calloc(1, sizeof(cmd_node));
       cmd->type = close_path;
-      emit(cmd);
+      append(l, cmd);
       break;
 
     default:
       exit(1);
     }
   }
-  if (tail && tail->type != close_path)
+  if (l->tail && l->tail->type != close_path)
   {
     cmd = calloc(1, sizeof(cmd_node));
     cmd->type = close_path;
-    emit(cmd);
+    append(l, cmd);
   }
 }
 
-void draw_commands(xml_node *node)
+void emit_draw_commands(cmd_list *l, xml_node *node)
 {
-  if (strcmp(node->tag.s, "svg") == 0 || strcmp(node->tag.s, "g") == 0)
+  if (strcmp(node->tag.str, "svg") == 0 || strcmp(node->tag.str, "g") == 0)
   {
-    paint_commands(node->attrs);
+    emit_paint_commands(l, node->attrs);
     for (xml_node *p = node->children; p; p = p->next)
     {
-      draw_commands(p);
+      emit_draw_commands(l, p);
     }
   }
-  else if (strcmp(node->tag.s, "path") == 0)
+  else if (strcmp(node->tag.str, "path") == 0)
   {
-    paint_commands(node->attrs);
+    emit_paint_commands(l, node->attrs);
     for (attr_node *p = node->attrs; p; p = p->next)
     {
-      if (strcmp(p->name.s, "d") == 0)
+      if (strcmp(p->name.str, "d") == 0)
       {
-        stencil_commands(p->value.s);
+        emit_stencil_commands(l, p->value.str);
       }
+    }
+  }
+}
+
+void print_draw_commands(cmd_list *l)
+{
+  for (cmd_node *cmd = l->head; cmd; cmd = cmd->next)
+  {
+    switch (cmd->type)
+    {
+    case stroke_width:
+      printf("stroke_width %f\n", cmd->args.stroke_width);
+      break;
+    case stroke_color:
+      printf("stroke_color %#x\n", cmd->args.stroke_color);
+      break;
+    case fill_color:
+      printf("fill_color %#x\n", cmd->args.fill_color);
+      break;
+    case move_to:
+      printf("move_to %f %f\n", cmd->args.path.x, cmd->args.path.y);
+      break;
+    case move_to_d:
+      printf("move_to_d %f %f\n", cmd->args.path.x, cmd->args.path.y);
+      break;
+    case line_to:
+      printf("line_to %f %f\n", cmd->args.path.x, cmd->args.path.y);
+      break;
+    case line_to_d:
+      printf("line_to_d %f %f\n", cmd->args.path.x, cmd->args.path.y);
+      break;
+    case v_line_to:
+      printf("v_line_to %f %f\n", cmd->args.path.x, cmd->args.path.y);
+      break;
+    case v_line_to_d:
+      printf("v_line_to_d %f %f\n", cmd->args.path.x, cmd->args.path.y);
+      break;
+    case h_line_to:
+      printf("h_line_to %f %f\n", cmd->args.path.x, cmd->args.path.y);
+      break;
+    case h_line_to_d:
+      printf("h_line_to_d %f %f\n", cmd->args.path.x, cmd->args.path.y);
+      break;
+    case curve_to:
+      printf("curve_to %f %f %f %f %f %f\n",
+             cmd->args.path.x1, cmd->args.path.y1,
+             cmd->args.path.x2, cmd->args.path.y2,
+             cmd->args.path.x, cmd->args.path.y);
+      break;
+    case curve_to_d:
+      printf("curve_to_d %f %f %f %f %f %f\n",
+             cmd->args.path.x1, cmd->args.path.y1,
+             cmd->args.path.x2, cmd->args.path.y2,
+             cmd->args.path.x, cmd->args.path.y);
+      break;
+    case s_curve_to:
+      printf("s_curve_to %f %f %f %f\n",
+             cmd->args.path.x2, cmd->args.path.y2,
+             cmd->args.path.x, cmd->args.path.y);
+      break;
+    case s_curve_to_d:
+      printf("s_curve_to_d %f %f %f %f\n",
+             cmd->args.path.x2, cmd->args.path.y2,
+             cmd->args.path.x, cmd->args.path.y);
+      break;
+    case close_path:
+      printf("close_path %f %f %f %f\n",
+             cmd->args.path.x2, cmd->args.path.y2,
+             cmd->args.path.x, cmd->args.path.y);
+      break;
     }
   }
 }
@@ -476,13 +559,10 @@ int main()
   token_stream s;
   read_char(&s.src);
   read_token(&s);
-  draw_commands(xml(&s));
 
-  for (cmd_node *cmd = head; cmd; cmd = cmd->next)
-  {
-    printf("%2d%10.4f%10.4f%10.4f%10.4f%10.4f%10.4f%8x\n",
-           cmd->type, cmd->x1, cmd->y1, cmd->x2, cmd->y2, cmd->x, cmd->y, cmd->color);
-  }
-
+  cmd_list l = {.head = NULL, .tail = NULL};
+  xml_node *dom = xml(&s);
+  emit_draw_commands(&l, dom);
+  print_draw_commands(&l);
   return 0;
 }
