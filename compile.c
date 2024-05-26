@@ -329,13 +329,11 @@ void stencil_commands(char *ptr)
   d_token next_token;
   read_token_d(&ptr, &next_token);
 
+  cmd_type cur_type;
+  cmd_node *cmd;
   while (next_token.type != eos)
   {
-    cmd_type cur_type;
-    cmd_node *cmd;
-
     char c = accept_command(&next_token, &ptr);
-
     switch (c)
     {
     case 'M':
@@ -430,6 +428,12 @@ void stencil_commands(char *ptr)
       exit(1);
     }
   }
+  if (tail && tail->type != close_path)
+  {
+    cmd = calloc(1, sizeof(cmd_node));
+    cmd->type = close_path;
+    emit(cmd);
+  }
 }
 
 void gen_commmands(xml_node *node)
@@ -463,7 +467,7 @@ int main()
 
   for (cmd_node *cmd = head; cmd; cmd = cmd->next)
   {
-    printf("%2d\t%10.4f\t%10.4f\t%10.4f\t%10.4f\t%10.4f\t%10.4f\t%6x\n",
+    printf("%2d%10.4f%10.4f%10.4f%10.4f%10.4f%10.4f%8x\n",
            cmd->type, cmd->x1, cmd->y1, cmd->x2, cmd->y2, cmd->x, cmd->y, cmd->color);
   }
 
