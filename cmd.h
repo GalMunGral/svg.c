@@ -17,3 +17,9 @@ typedef enum
   s_curve_to_d,
   close_path
 } cmd_type;
+
+typedef enum
+{
+  edge,
+  fill
+} s_cmd_type;

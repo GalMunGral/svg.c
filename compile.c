@@ -37,158 +37,170 @@ typedef struct xml_node
   struct xml_node *children;
 } xml_node;
 
-int next_char;
-
-void read_char(void)
+typedef struct char_stream
 {
-  next_char = getchar();
+  int next;
+} char_stream;
+
+int read_char(char_stream *s)
+{
+  int c = s->next;
+  s->next = getchar();
+  return c;
 }
 
-char *get_string(char *end)
+char *get_string(char_stream *s, char *end)
 {
   static char buffer[4096];
   int i = 0;
-  while (next_char != EOF && !(strchr(end, next_char)))
+  while (s->next != EOF && !(strchr(end, s->next)))
   {
-    buffer[i++] = next_char;
-    read_char();
+    buffer[i++] = read_char(s);
   }
 
-  if (!(strchr(end, next_char)))
+  if (!(strchr(end, s->next)))
     exit(1);
 
   buffer[i] = '\0';
   return strdup(buffer);
 }
 
-token next_token;
-
-void read_token()
+typedef struct token_stream
 {
-  while (isspace(next_char))
-    read_char();
+  token next;
+  char_stream src;
+} token_stream;
 
-  switch (next_char)
+token read_token(token_stream *s)
+{
+  token t = s->next;
+  while (isspace(s->src.next))
+    read_char(&s->src);
+
+  switch (s->src.next)
   {
   case EOF:
-    next_token = (token){.type = eof};
+    s->next = (token){.type = eof};
     break;
 
   case '<':
-    read_char();
-    if (next_char == '/')
+    read_char(&s->src);
+    if (s->src.next == '/')
     {
-      read_char();
-      next_token = (token){.type = langle_slash};
+      read_char(&s->src);
+      s->next = (token){.type = langle_slash};
     }
     else
     {
-      next_token = (token){.type = langle};
+      s->next = (token){.type = langle};
     }
     break;
 
   case '/':
-    read_char();
-    if (next_char != '>')
+    read_char(&s->src);
+    if (s->src.next != '>')
       exit(1);
-    read_char();
-    next_token = (token){.type = slash_rangle};
+    read_char(&s->src);
+    s->next = (token){.type = slash_rangle};
     break;
 
   case '>':
-    read_char();
-    next_token = (token){.type = rangle};
+    read_char(&s->src);
+    s->next = (token){.type = rangle};
     break;
 
   case '=':
-    read_char();
-    next_token = (token){.type = eq};
+    read_char(&s->src);
+    s->next = (token){.type = eq};
     break;
 
   case '"':
   {
-    read_char();
-    char *s = get_string("\"");
-    read_char();
-    next_token = (token){.type = quoted_string, .s = s};
+    read_char(&s->src);
+    char *str = get_string(&s->src, "\"");
+    read_char(&s->src);
+    s->next = (token){.type = quoted_string, .s = str};
     break;
   }
   default:
   {
-    char *s = get_string(" =>");
-    next_token = (token){.type = string, .s = s};
+    char *str = get_string(&s->src, " =>");
+    s->next = (token){.type = string, .s = str};
     break;
   }
   }
+  return t;
 }
 
-int accept(token_type expected, token *dst)
+int accept(token_stream *s, token_type expected, token *dst)
 {
-  if (next_token.type != expected)
+  if (s->next.type != expected)
     return 0;
   if (dst)
-    *dst = next_token;
-  read_token();
+    *dst = s->next;
+  read_token(s);
   return 1;
 }
 
-attr_node *attr(void)
+attr_node *attr(token_stream *s)
 {
   attr_node *node = calloc(1, sizeof(attr_node));
-  if (!accept(string, &node->name))
-    exit(1);
-  if (!accept(eq, NULL))
-    exit(1);
-  if (!accept(quoted_string, &node->value))
+  if (!(accept(s, string, &node->name) &&
+        accept(s, eq, NULL) &&
+        accept(s, quoted_string, &node->value)))
     exit(1);
   return node;
 }
 
-attr_node *attr_list(void)
+attr_node *attr_list(token_stream *s)
 {
-  if (next_token.type != string)
+  if (s->next.type != string)
     return NULL;
-  attr_node *head = attr(), *tail = head;
-  while (next_token.type == string)
-    tail = tail->next = attr();
+
+  attr_node *head = attr(s), *tail = head;
+  while (s->next.type == string)
+    tail = tail->next = attr(s);
+
   return head;
 }
 
-xml_node *xml(void)
+xml_node *xml_list(token_stream *s);
+
+xml_node *xml(token_stream *s)
 {
   xml_node *node = calloc(1, sizeof(xml_node));
-  if (!accept(langle, NULL))
+  if (!(accept(s, langle, NULL) &&
+        accept(s, string, &node->tag)))
     exit(1);
 
-  if (!accept(string, &node->tag))
-    exit(1);
+  node->attrs = attr_list(s);
 
-  node->attrs = attr_list();
-
-  if (accept(slash_rangle, NULL))
+  if (accept(s, slash_rangle, NULL))
     return node;
 
-  if (!accept(rangle, NULL))
+  if (!accept(s, rangle, NULL))
     exit(1);
 
-  if (next_token.type == langle)
-  {
-    xml_node *head = xml(), *tail = head;
-    while (next_token.type == langle)
-    {
-      tail = tail->next = xml();
-    }
-    node->children = head;
-  }
+  node->children = xml_list(s);
 
-  if (!accept(langle_slash, NULL))
-    exit(1);
-  if (!accept(string, NULL))
-    exit(1);
-  if (!accept(rangle, NULL))
+  if (!(accept(s, langle_slash, NULL) &&
+        accept(s, string, NULL) &&
+        accept(s, rangle, NULL)))
     exit(1);
 
   return node;
+}
+
+xml_node *xml_list(token_stream *s)
+{
+  if (s->next.type != langle)
+    return NULL;
+
+  xml_node *head = xml(s), *tail = head;
+  while (s->next.type == langle)
+    tail = tail->next = xml(s);
+
+  return head;
 }
 
 typedef struct cmd_node
@@ -257,7 +269,7 @@ void paint_commands(attr_node *p)
     else if (strcmp(p->name.s, "stroke-width") == 0)
     {
       cmd_node *cmd = calloc(1, sizeof(cmd_node));
-      cmd->type = stroke_color;
+      cmd->type = stroke_width;
       sscanf(p->value.s, "%f", &cmd->x);
       emit(cmd);
     }
@@ -436,14 +448,14 @@ void stencil_commands(char *ptr)
   }
 }
 
-void gen_commmands(xml_node *node)
+void draw_commands(xml_node *node)
 {
   if (strcmp(node->tag.s, "svg") == 0 || strcmp(node->tag.s, "g") == 0)
   {
     paint_commands(node->attrs);
     for (xml_node *p = node->children; p; p = p->next)
     {
-      gen_commmands(p);
+      draw_commands(p);
     }
   }
   else if (strcmp(node->tag.s, "path") == 0)
@@ -461,9 +473,10 @@ void gen_commmands(xml_node *node)
 
 int main()
 {
-  read_char();
-  read_token();
-  gen_commmands(xml());
+  token_stream s;
+  read_char(&s.src);
+  read_token(&s);
+  draw_commands(xml(&s));
 
   for (cmd_node *cmd = head; cmd; cmd = cmd->next)
   {
