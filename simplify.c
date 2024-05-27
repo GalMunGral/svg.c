@@ -107,6 +107,9 @@ void approx_bezier(context *ctx, float x0, float y0, float x1, float y1, float x
 void emit_polygon(context *ctx)
 {
   int n = size(&ctx->path);
+  if (n < 2)
+    return;
+
   printf("%#x %d\n", ctx->fill_color, n);
   for (vertex *v = ctx->path.head; v; v = v->next)
   {
