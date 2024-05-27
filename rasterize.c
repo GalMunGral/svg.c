@@ -9,11 +9,11 @@ typedef struct point
   struct point *next;
 } point;
 
-void dispose(point *l)
+void free_list(point *l)
 {
   if (l)
   {
-    dispose(l->next);
+    free_list(l->next);
     free(l);
   }
 }
@@ -185,9 +185,6 @@ void set_pixel(unsigned char *image, int x, int y, int color)
   image[(y * SIZE + x) * 4 + 3] = 0xff;
 }
 
-#define SCALE 1
-#define OFFSET 350
-
 void rasterize(unsigned char *image, polygon *p)
 {
   edge_list remaining = {0}, active = {0};
@@ -209,7 +206,7 @@ void rasterize(unsigned char *image, polygon *p)
       {
         for (int x = ceilf(prev_x); x < e->x; ++x)
         {
-          set_pixel(image, x * SCALE + OFFSET, y * SCALE + OFFSET, p->color);
+          set_pixel(image, x, y, p->color);
         }
       }
       cur_winding += e->winding;
@@ -259,7 +256,7 @@ int main()
   while (read_polygon(&p))
   {
     rasterize(image, &p);
-    dispose(p.vertices.head);
+    free_list(p.vertices.head);
     p = (polygon){0};
   }
 

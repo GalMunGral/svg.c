@@ -3,6 +3,8 @@ typedef enum
   stroke_width,
   stroke_color,
   fill_color,
+  push_matrix,
+  pop_matrix,
   move_to,
   move_to_d,
   line_to,

@@ -1,4 +1,4 @@
-all: parse simplify render
+all: parse simplify rasterize 
 
 parse: compile.c
 	gcc compile.c -o compile
