@@ -6,5 +6,8 @@ parse: compile.c
 simplify: simplify.c
 	gcc simplify.c -o simplify
 
-render: render.c
-	gcc render.c -o render
+lodepng.o: lodepng.c
+	gcc lodepng.c -c
+
+rasterize: rasterize.c lodepng.o
+	gcc rasterize.c lodepng.o -o rasterize

@@ -488,67 +488,66 @@ void print_draw_commands(cmd_list *l)
 {
   for (cmd_node *cmd = l->head; cmd; cmd = cmd->next)
   {
+    printf("%d ", cmd->type);
     switch (cmd->type)
     {
     case stroke_width:
-      printf("stroke_width %f\n", cmd->args.stroke_width);
+      printf("stroke_width\n%f\n", cmd->args.stroke_width);
       break;
     case stroke_color:
-      printf("stroke_color %#x\n", cmd->args.stroke_color);
+      printf("stroke_color\n%#x\n", cmd->args.stroke_color);
       break;
     case fill_color:
-      printf("fill_color %#x\n", cmd->args.fill_color);
+      printf("fill_color\n%#x\n", cmd->args.fill_color);
       break;
     case move_to:
-      printf("move_to %f %f\n", cmd->args.path.x, cmd->args.path.y);
+      printf("move_to\n%f %f\n", cmd->args.path.x, cmd->args.path.y);
       break;
     case move_to_d:
-      printf("move_to_d %f %f\n", cmd->args.path.x, cmd->args.path.y);
+      printf("move_to_d\n%f %f\n", cmd->args.path.x, cmd->args.path.y);
       break;
     case line_to:
-      printf("line_to %f %f\n", cmd->args.path.x, cmd->args.path.y);
+      printf("line_to\n%f %f\n", cmd->args.path.x, cmd->args.path.y);
       break;
     case line_to_d:
-      printf("line_to_d %f %f\n", cmd->args.path.x, cmd->args.path.y);
+      printf("line_to_d\n%f %f\n", cmd->args.path.x, cmd->args.path.y);
       break;
     case v_line_to:
-      printf("v_line_to %f %f\n", cmd->args.path.x, cmd->args.path.y);
+      printf("v_line_to\n%f\n", cmd->args.path.y);
       break;
     case v_line_to_d:
-      printf("v_line_to_d %f %f\n", cmd->args.path.x, cmd->args.path.y);
+      printf("v_line_to_d\n%f\n", cmd->args.path.y);
       break;
     case h_line_to:
-      printf("h_line_to %f %f\n", cmd->args.path.x, cmd->args.path.y);
+      printf("h_line_to\n%f\n", cmd->args.path.x);
       break;
     case h_line_to_d:
-      printf("h_line_to_d %f %f\n", cmd->args.path.x, cmd->args.path.y);
+      printf("h_line_to_d\n%f\n", cmd->args.path.x);
       break;
     case curve_to:
-      printf("curve_to %f %f %f %f %f %f\n",
+      printf("curve_to\n%f %f %f %f %f %f\n",
              cmd->args.path.x1, cmd->args.path.y1,
              cmd->args.path.x2, cmd->args.path.y2,
              cmd->args.path.x, cmd->args.path.y);
       break;
     case curve_to_d:
-      printf("curve_to_d %f %f %f %f %f %f\n",
+      printf("curve_to_d\n%f %f %f %f %f %f\n",
              cmd->args.path.x1, cmd->args.path.y1,
              cmd->args.path.x2, cmd->args.path.y2,
              cmd->args.path.x, cmd->args.path.y);
       break;
     case s_curve_to:
-      printf("s_curve_to %f %f %f %f\n",
+      printf("s_curve_to\n%f %f %f %f\n",
              cmd->args.path.x2, cmd->args.path.y2,
              cmd->args.path.x, cmd->args.path.y);
       break;
     case s_curve_to_d:
-      printf("s_curve_to_d %f %f %f %f\n",
+      printf("s_curve_to_d\n%f %f %f %f\n",
              cmd->args.path.x2, cmd->args.path.y2,
              cmd->args.path.x, cmd->args.path.y);
       break;
     case close_path:
-      printf("close_path %f %f %f %f\n",
-             cmd->args.path.x2, cmd->args.path.y2,
-             cmd->args.path.x, cmd->args.path.y);
+      printf("close_path\n");
       break;
     }
   }
