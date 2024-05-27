@@ -93,7 +93,7 @@ float bezier(float t, float v0, float v1, float v2, float v3)
   return v0123;
 }
 
-#define SAMPLING_RATE 5
+#define SAMPLING_RATE 10
 
 void approx_bezier(context *ctx, float x0, float y0, float x1, float y1, float x2, float y2, float x3, float y3)
 {
@@ -140,21 +140,24 @@ int read_and_exec(context *ctx)
     break;
   case move_to:
   {
+    if (ctx->path.head != ctx->path.tail)
+      exit(1);
     float x, y;
     scanf("%f %f\n", &x, &y);
     p->x = x;
     p->y = y;
+    set_tangent(ctx, 0, 0);
     break;
   }
   case move_to_d:
   {
-    if (!ctx->path.head)
-      add_to_path(ctx, 0, 0);
-
+    if (ctx->path.head != ctx->path.tail)
+      exit(1);
     float dx, dy;
     scanf("%f %f\n", &dx, &dy);
     p->x += dx;
     p->y += dy;
+    set_tangent(ctx, 0, 0);
     break;
   }
   case line_to:
@@ -162,8 +165,7 @@ int read_and_exec(context *ctx)
     float x, y;
     scanf("%f %f\n", &x, &y);
     add_to_path(ctx, x, y);
-    ctx->control.x = x;
-    ctx->control.y = y;
+    set_tangent(ctx, 0, 0);
     break;
   }
   case line_to_d:
