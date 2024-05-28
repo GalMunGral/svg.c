@@ -1,7 +1,28 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 #include "cmd.h"
+
+typedef struct point
+{
+  float x, y;
+} point;
+
+typedef struct vec3
+{
+  float v[3];
+} vec3;
+
+vec3 to_vec(point p)
+{
+  return (vec3){.v = {p.x, p.y, 1.0f}};
+}
+
+point to_point(vec3 v)
+{
+  return (point){.x = v.v[0] / v.v[2], .y = v.v[1] / v.v[2]};
+}
 
 typedef struct mat3
 {
@@ -34,68 +55,6 @@ mat3 mult(mat3 m1, mat3 m2)
   return p;
 }
 
-typedef struct transform
-{
-  mat3 matrix;
-  struct transform *next;
-} transform;
-
-typedef struct transform_stack
-{
-  transform *head;
-  transform *tail;
-} transform_stack;
-
-void push(transform_stack *st, mat3 m)
-{
-  transform *t = calloc(1, sizeof(transform));
-  t->matrix = m;
-
-  if (!st->head)
-  {
-    st->head = st->tail = t;
-  }
-  else
-  {
-    t->next = st->head;
-    st->head = t;
-  }
-}
-
-void pop(transform_stack *st)
-{
-  if (!st->head)
-    return;
-
-  transform *popped = st->head;
-  if (st->head == st->tail)
-  {
-    st->head = st->tail = NULL;
-  }
-  else
-  {
-    st->head = st->head->next;
-  }
-  free(popped);
-}
-
-typedef struct vec3
-{
-  float v[3];
-} vec3;
-
-const vec3 origin = {.v = {0.0f, 0.0f, 1.0f}};
-
-float x(vec3 *v)
-{
-  return v->v[0];
-}
-
-float y(vec3 *v)
-{
-  return v->v[1];
-}
-
 vec3 apply(mat3 m, vec3 x)
 {
   vec3 y = {0};
@@ -109,9 +68,23 @@ vec3 apply(mat3 m, vec3 x)
   return y;
 }
 
+typedef struct style
+{
+  int fill_color;
+  int stroke_color;
+  float stroke_width;
+  struct style *parent;
+} style;
+
+typedef struct transform
+{
+  mat3 matrix;
+  struct transform *parent;
+} transform;
+
 typedef struct vertex
 {
-  vec3 pos;
+  point pos;
   struct vertex *next;
 } vertex;
 
@@ -130,6 +103,12 @@ typedef struct path
   vertex *tail;
 } path;
 
+void clear(path *p)
+{
+  free_list(p->head);
+  p->head = p->tail = NULL;
+}
+
 int size(path *l)
 {
   int n = 0;
@@ -137,45 +116,86 @@ int size(path *l)
     ++n;
   return n;
 }
-
 typedef struct context
 {
-  int fill_color, stroke_color;
-  float stroke_width;
-  transform_stack transforms;
+  style *style;
+  transform *transforms;
   path path;
-  vec3 control;
+  point control;
 } context;
 
-void reset_path(context *ctx)
+void save_style(context *ctx)
 {
-  free_list(ctx->path.head);
-  vertex *start = calloc(1, sizeof(vertex));
-  start->pos = origin;
-  ctx->path.head = ctx->path.tail = start;
+  style *s = calloc(1, sizeof(style));
+  if (!ctx->style)
+    exit(1);
+  memcpy(s, ctx->style, sizeof(style));
+  s->parent = ctx->style;
+  ctx->style = s;
+}
+
+void restore_style(context *ctx)
+{
+  style *s = ctx->style;
+  if (!s || !s->parent)
+    exit(1);
+  ctx->style = s->parent;
+  free(s);
 }
 
 mat3 get_transform(context *ctx)
 {
   mat3 m = identity();
-  for (transform *t = ctx->transforms.head; t; t = t->next)
+  for (transform *t = ctx->transforms; t; t = t->parent)
   {
     m = mult(t->matrix, m);
   }
   return m;
 }
 
-vec3 *get_current_point(context *ctx)
+void push_transform(context *ctx, mat3 m)
+{
+  transform *t = calloc(1, sizeof(transform));
+  t->matrix = m;
+  t->parent = ctx->transforms;
+  ctx->transforms = t;
+}
+
+void pop_transform(context *ctx)
+{
+  transform *t = ctx->transforms;
+  if (!t)
+    exit(1);
+  ctx->transforms = t->parent;
+  free(t);
+}
+
+point *start_point(context *ctx)
+{
+  if (!ctx->path.head)
+    exit(1);
+  return &ctx->path.head->pos;
+}
+
+point *current_point(context *ctx)
 {
   if (!ctx->path.tail)
     exit(1);
   return &ctx->path.tail->pos;
 }
 
+void set_tangent(context *ctx, float tx, float ty)
+{
+  point *p = current_point(ctx);
+  ctx->control.x = p->x + tx;
+  ctx->control.y = p->y + ty;
+}
+
 void add_to_path(context *ctx, float x, float y)
 {
   vertex *v = calloc(1, sizeof(vertex));
-  v->pos = (vec3){.v = {x, y, 1.0f}};
+  v->pos.x = x;
+  v->pos.y = y;
   if (!ctx->path.head)
   {
     ctx->path.head = ctx->path.tail = v;
@@ -186,11 +206,11 @@ void add_to_path(context *ctx, float x, float y)
   }
 }
 
-void set_tangent(context *ctx, float tx, float ty)
+void reset_path(context *ctx)
 {
-  vec3 *p = get_current_point(ctx);
-  ctx->control.v[0] = x(p) + tx;
-  ctx->control.v[1] = y(p) + ty;
+  clear(&ctx->path);
+  add_to_path(ctx, 0, 0);
+  ctx->control = *current_point(ctx);
 }
 
 float bezier(float t, float v0, float v1, float v2, float v3)
@@ -215,74 +235,143 @@ void approx_bezier(context *ctx, float x0, float y0, float x1, float y1, float x
   }
 }
 
-void emit_polygon(context *ctx)
+void emit_line_segment(context *ctx, point a, point b)
 {
-  int n = size(&ctx->path);
-  if (n < 2)
+  float r = ctx->style->stroke_width / 2;
+  float vx = b.x - a.x, vy = b.y - a.y;
+  float l = sqrtf(vx * vx + vy * vy);
+  if (l == 0)
     return;
+  float dx = -r * (vy / l), dy = r * (vx / l);
+  printf("%#x %d\n", ctx->style->stroke_color, 4);
+  printf("%f %f\n", a.x + dx, a.y + dy);
+  printf("%f %f\n", a.x - dx, a.y - dy);
+  printf("%f %f\n", b.x - dx, b.y - dy);
+  printf("%f %f\n", b.x + dx, b.y + dy);
+}
 
-  printf("%#x %d\n", ctx->fill_color, n);
+int circle_sampling_rate = 10;
 
+void emit_line_joint(context *ctx, point p)
+{
+  int n = circle_sampling_rate;
+  float r = ctx->style->stroke_width / 2;
+
+  printf("%#x %d\n", ctx->style->stroke_color, n);
+  for (int i = 0; i < n; ++i)
+  {
+    float theta = (2 * M_PI / n) * i;
+    printf("%f %f\n", p.x + r * cosf(theta), p.y + r * sinf(theta));
+  }
+}
+
+void apply_transform(context *ctx)
+{
   mat3 m = get_transform(ctx);
   for (vertex *v = ctx->path.head; v; v = v->next)
   {
-    vec3 p = apply(m, v->pos);
-    printf("%f %f\n", p.v[0] / p.v[2], p.v[1] / p.v[2]);
+    v->pos = to_point(apply(m, to_vec(v->pos)));
   }
-
-  // TODO: stroke
 }
 
-int read_and_exec(context *ctx)
+void fill_path(context *ctx)
+{
+  if (!ctx->style)
+    exit(1);
+  if (ctx->style->fill_color == -1)
+    return;
+
+  int n = size(&ctx->path);
+  if (n >= 2)
+  {
+    printf("%#x %d\n", ctx->style->fill_color, n);
+    for (vertex *v = ctx->path.head; v; v = v->next)
+    {
+      printf("%f %f\n", v->pos.x, v->pos.y);
+    }
+  }
+}
+
+void stroke_path(context *ctx)
+{
+  if (!ctx->style)
+    exit(1);
+  if (ctx->style->stroke_color == -1)
+    return;
+  if (ctx->style->stroke_width <= 0)
+    return;
+  if (size(&ctx->path) < 2)
+    return;
+
+  for (vertex *v = ctx->path.head; v != ctx->path.tail; v = v->next)
+  {
+    emit_line_segment(ctx, v->pos, v->next->pos);
+  }
+  for (vertex *v = ctx->path.head->next; v != ctx->path.tail; v = v->next)
+  {
+    emit_line_joint(ctx, v->pos);
+  }
+}
+
+int exec_next_command(context *ctx)
 {
   cmd_type type;
   if (scanf("%d%*[^\n]\n", &type) == EOF)
     return 0;
 
-  vec3 *p = get_current_point(ctx);
-  vec3 *cp = &ctx->control;
-
   switch (type)
   {
+  case save:
+    save_style(ctx);
+    break;
+  case restore:
+    restore_style(ctx);
+    break;
   case stroke_width:
-    scanf("%f\n", &ctx->stroke_width);
+    scanf("%f\n", &ctx->style->stroke_width);
     break;
   case stroke_color:
-    scanf("%x\n", &ctx->stroke_color);
+    scanf("%x\n", &ctx->style->stroke_color);
     break;
   case fill_color:
-    scanf("%x\n", &ctx->fill_color);
+    scanf("%x\n", &ctx->style->fill_color);
     break;
   case push_matrix:
   {
-    mat3 m;
+    mat3 m = {0};
     scanf("%f %f %f %f %f %f\n",
           &m.v[0][0], &m.v[1][0],
           &m.v[0][1], &m.v[1][1],
           &m.v[0][2], &m.v[1][2]);
     m.v[2][2] = 1.0f;
-    push(&ctx->transforms, m);
+    push_transform(ctx, m);
     break;
   }
   case pop_matrix:
-    pop(&ctx->transforms);
+    pop_transform(ctx);
+    break;
+  case begin_path:
+    reset_path(ctx);
     break;
   case move_to:
   {
-    if (ctx->path.head != ctx->path.tail)
-      exit(1);
-    scanf("%f %f\n", &p->v[0], &p->v[1]);
+    float x, y;
+    scanf("%f %f\n", &x, &y);
+
+    point *p = current_point(ctx);
+    p->x = x;
+    p->y = y;
     set_tangent(ctx, 0, 0);
     break;
   }
   case move_to_d:
   {
-    if (ctx->path.head != ctx->path.tail)
-      exit(1);
     float dx, dy;
     scanf("%f %f\n", &dx, &dy);
-    p->v[0] += dx;
-    p->v[1] += dy;
+
+    point *p = current_point(ctx);
+    p->x += dx;
+    p->y += dy;
     set_tangent(ctx, 0, 0);
     break;
   }
@@ -290,6 +379,7 @@ int read_and_exec(context *ctx)
   {
     float x, y;
     scanf("%f %f\n", &x, &y);
+
     add_to_path(ctx, x, y);
     set_tangent(ctx, 0, 0);
     break;
@@ -298,7 +388,9 @@ int read_and_exec(context *ctx)
   {
     float dx, dy;
     scanf("%f %f\n", &dx, &dy);
-    add_to_path(ctx, x(p) + dx, y(p) + dy);
+
+    point p = *current_point(ctx);
+    add_to_path(ctx, p.x + dx, p.y + dy);
     set_tangent(ctx, 0, 0);
     break;
   }
@@ -306,7 +398,9 @@ int read_and_exec(context *ctx)
   {
     float y;
     scanf("%f\n", &y);
-    add_to_path(ctx, x(p), y);
+
+    point p = *current_point(ctx);
+    add_to_path(ctx, p.x, y);
     set_tangent(ctx, 0, 0);
     break;
   }
@@ -314,7 +408,9 @@ int read_and_exec(context *ctx)
   {
     float dy;
     scanf("%f\n", &dy);
-    add_to_path(ctx, x(p), y(p) + dy);
+
+    point p = *current_point(ctx);
+    add_to_path(ctx, p.x, p.y + dy);
     set_tangent(ctx, 0, 0);
     break;
   }
@@ -322,7 +418,9 @@ int read_and_exec(context *ctx)
   {
     float x;
     scanf("%f\n", &x);
-    add_to_path(ctx, x, y(p));
+
+    point p = *current_point(ctx);
+    add_to_path(ctx, x, p.y);
     set_tangent(ctx, 0, 0);
     break;
   }
@@ -330,7 +428,9 @@ int read_and_exec(context *ctx)
   {
     float dx;
     scanf("%f\n", &dx);
-    add_to_path(ctx, x(p) + dx, y(p));
+
+    point p = *current_point(ctx);
+    add_to_path(ctx, p.x + dx, p.y);
     set_tangent(ctx, 0, 0);
     break;
   }
@@ -338,7 +438,9 @@ int read_and_exec(context *ctx)
   {
     float x1, y1, x2, y2, x3, y3;
     scanf("%f %f %f %f %f %f\n", &x1, &y1, &x2, &y2, &x3, &y3);
-    approx_bezier(ctx, x(p), y(p), x1, y1, x2, y2, x3, y3);
+
+    point p = *current_point(ctx);
+    approx_bezier(ctx, p.x, p.y, x1, y1, x2, y2, x3, y3);
     set_tangent(ctx, x3 - x2, y3 - y2);
     break;
   }
@@ -346,8 +448,9 @@ int read_and_exec(context *ctx)
   {
     float dx1, dy1, dx2, dy2, dx3, dy3;
     scanf("%f %f %f %f %f %f\n", &dx1, &dy1, &dx2, &dy2, &dx3, &dy3);
-    approx_bezier(ctx, x(p), y(p), x(p) + dx1, y(p) + dy1,
-                  x(p) + dx2, y(p) + dy2, x(p) + dx3, y(p) + dy3);
+
+    point p = *current_point(ctx);
+    approx_bezier(ctx, p.x, p.y, p.x + dx1, p.y + dy1, p.x + dx2, p.y + dy2, p.x + dx3, p.y + dy3);
     set_tangent(ctx, dx3 - dx2, dy3 - dy2);
     break;
   }
@@ -355,7 +458,10 @@ int read_and_exec(context *ctx)
   {
     float x2, y2, x3, y3;
     scanf("%f %f %f %f\n", &x2, &y2, &x3, &y3);
-    approx_bezier(ctx, x(p), y(p), x(cp), y(cp), x2, y2, x3, y3);
+
+    point p = *current_point(ctx);
+    point cp = ctx->control;
+    approx_bezier(ctx, p.x, p.y, cp.x, cp.y, x2, y2, x3, y3);
     set_tangent(ctx, x3 - x2, y3 - y2);
     break;
   }
@@ -363,14 +469,23 @@ int read_and_exec(context *ctx)
   {
     float dx2, dy2, dx3, dy3;
     scanf("%f %f %f %f\n", &dx2, &dy2, &dx3, &dy3);
-    approx_bezier(ctx, x(p), y(p), x(cp), y(cp),
-                  x(p) + dx2, y(p) + dy2, x(p) + dx3, y(p) + dy3);
+
+    point p = *current_point(ctx);
+    point cp = ctx->control;
+    approx_bezier(ctx, p.x, p.y, cp.x, cp.y, p.x + dx2, p.y + dy2, p.x + dx3, p.y + dy3);
     set_tangent(ctx, dx3 - dx2, dy3 - dy2);
     break;
   }
   case close_path:
-    emit_polygon(ctx);
-    reset_path(ctx);
+  {
+    point p = *start_point(ctx);
+    add_to_path(ctx, p.x, p.y);
+    break;
+  }
+  case fill_and_stroke:
+    apply_transform(ctx);
+    fill_path(ctx);
+    stroke_path(ctx);
     break;
   }
 
@@ -383,9 +498,12 @@ int main(int argc, char *argv[])
     sscanf(argv[1], "%d", &bezier_sampling_rate);
 
   context ctx = {0};
-  reset_path(&ctx);
+  ctx.style = calloc(1, sizeof(style));
+  ctx.style->fill_color = 0;
+  ctx.style->stroke_color = -1;
+  ctx.style->stroke_width = 1;
 
-  while (read_and_exec(&ctx))
+  while (exec_next_command(&ctx))
     ;
   return 0;
 }

@@ -1,10 +1,13 @@
 typedef enum
 {
+  save,
+  restore,
   stroke_width,
   stroke_color,
   fill_color,
   push_matrix,
   pop_matrix,
+  begin_path,
   move_to,
   move_to_d,
   line_to,
@@ -17,5 +20,6 @@ typedef enum
   curve_to_d,
   s_curve_to,
   s_curve_to_d,
-  close_path
+  close_path,
+  fill_and_stroke,
 } cmd_type;

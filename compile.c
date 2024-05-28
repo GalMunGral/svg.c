@@ -251,7 +251,7 @@ int parse_color(char *s)
 {
   int n = strlen(s);
   if (n == 0 || s[0] != '#')
-    return 0;
+    return -1;
   if (n == 4)
     return hex(s[1]) << 20 | hex(s[1]) << 16 | hex(s[2]) << 12 | hex(s[2]) << 8 | hex(s[3]) << 4 | hex(s[3]);
   if (n == 7)
@@ -438,6 +438,10 @@ void compile_path(cmd_list *l, char *d)
   cmd_type cur_type;
   cmd_node *cmd;
 
+  cmd = calloc(1, sizeof(cmd_node));
+  cmd->type = begin_path;
+  append(l, cmd);
+
   while (s.next.type != p_eos)
   {
     char c = path_command(&s);
@@ -535,12 +539,9 @@ void compile_path(cmd_list *l, char *d)
       exit(1);
     }
   }
-  if (l->tail && l->tail->type != close_path)
-  {
-    cmd = calloc(1, sizeof(cmd_node));
-    cmd->type = close_path;
-    append(l, cmd);
-  }
+  cmd = calloc(1, sizeof(cmd_node));
+  cmd->type = fill_and_stroke;
+  append(l, cmd);
 }
 
 void emit_draw_commands(cmd_list *l, xml_node *node)
@@ -588,9 +589,18 @@ void emit_draw_commands(cmd_list *l, xml_node *node)
     }
   }
 
+  cmd_node *cmd;
   for (xml_node *p = node->children; p; p = p->next)
   {
+    cmd = calloc(1, sizeof(cmd_node));
+    cmd->type = save;
+    append(l, cmd);
+
     emit_draw_commands(l, p);
+
+    cmd = calloc(1, sizeof(cmd_node));
+    cmd->type = restore;
+    append(l, cmd);
   }
 
   if (has_tranform)
@@ -608,6 +618,12 @@ void print_draw_commands(cmd_list *l)
     printf("%d ", cmd->type);
     switch (cmd->type)
     {
+    case save:
+      printf("save\n");
+      break;
+    case restore:
+      printf("restore\n");
+      break;
     case stroke_width:
       printf("stroke_width\n%f\n", cmd->args.stroke_width);
       break;
@@ -625,6 +641,9 @@ void print_draw_commands(cmd_list *l)
       break;
     case pop_matrix:
       printf("pop_matrix\n");
+      break;
+    case begin_path:
+      printf("begin_path\n");
       break;
     case move_to:
       printf("move_to\n%f %f\n", cmd->args.path.x, cmd->args.path.y);
@@ -674,6 +693,9 @@ void print_draw_commands(cmd_list *l)
       break;
     case close_path:
       printf("close_path\n");
+      break;
+    case fill_and_stroke:
+      printf("fill_and_stroke\n");
       break;
     }
   }

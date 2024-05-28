@@ -24,6 +24,12 @@ typedef struct point_list
   point *tail;
 } point_list;
 
+void clear(point_list *l)
+{
+  free_list(l->head);
+  l->head = l->tail = NULL;
+}
+
 void add_point(point_list *l, float x, float y)
 {
   point *p = calloc(1, sizeof(point));
@@ -158,22 +164,25 @@ typedef struct polygon
   point_list vertices;
 } polygon;
 
+#define SCALE 2
+
 int read_polygon(polygon *p)
 {
   int n;
   if (scanf("%x %d\n", &p->color, &n) == EOF)
     return 0;
 
+  clear(&p->vertices);
   while (n--)
   {
     float x, y;
     scanf("%f %f\n", &x, &y);
-    add_point(&p->vertices, x, y);
+    add_point(&p->vertices, x * SCALE, y * SCALE);
   }
   return 1;
 }
 
-#define SIZE 900
+#define SIZE 2000
 
 void set_pixel(unsigned char *image, int x, int y, int color)
 {
@@ -192,6 +201,9 @@ void rasterize(unsigned char *image, polygon *p)
   add(&remaining, p->vertices.tail, p->vertices.head);
   for (point *v = p->vertices.head; v != p->vertices.tail; v = v->next)
     add(&remaining, v, v->next);
+
+  if (!remaining.head)
+    return;
 
   quick_sort(&remaining, by_y_start);
 
@@ -256,8 +268,6 @@ int main()
   while (read_polygon(&p))
   {
     rasterize(image, &p);
-    free_list(p.vertices.head);
-    p = (polygon){0};
   }
 
   unsigned error = lodepng_encode32_file("out.png", image, SIZE, SIZE);
