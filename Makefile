@@ -1,6 +1,12 @@
 run: all
 	./compile < tiger.svg | ./interpret 20 | ./rasterize
 
+debug/compile: compile
+	./compile < tiger.svg > compile.out
+
+debug/interpret: compile interpret
+	./compile < tiger.svg | ./interpret > interpret.out
+
 all: compile interpret rasterize 
 
 lodepng.o: lib/lodepng.c

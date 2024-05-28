@@ -43,6 +43,7 @@ typedef struct token {
   token_type type;
   char *str;
 } token;
+
 typedef struct token_stream {
   token next;
   char_stream src;
