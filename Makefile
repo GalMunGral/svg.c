@@ -16,4 +16,4 @@ rasterize: rasterize.c lib/lodepng.o
 	gcc $^ -o $@
 
 clean:
-	rm -f compile interpret rasterize **/*.o *.txt *.png
+	rm -f compile interpret rasterize **/*.o *.txt
