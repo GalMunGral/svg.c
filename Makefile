@@ -1,13 +1,19 @@
-all: parse simplify rasterize 
+run: all
+	./compile < tiger.svg | ./interpret 100 | ./rasterize
 
-parse: compile.c
-	gcc compile.c -o compile
+all: compile interpret rasterize 
 
-simplify: simplify.c
-	gcc simplify.c -o simplify
+lodepng.o: lib/lodepng.c
+	gcc lib/lodepng.c -c -o $@
 
-lodepng.o: lodepng.c
-	gcc lodepng.c -c
+compile: compile.c
+	gcc $^ -o $@
 
-rasterize: rasterize.c lodepng.o
-	gcc rasterize.c lodepng.o -o rasterize
+interpret: interpret.c
+	gcc $^ -o $@
+
+rasterize: rasterize.c lib/lodepng.o
+	gcc $^ -o $@
+
+clean:
+	rm -f compile interpret rasterize **/*.o *.txt *.png

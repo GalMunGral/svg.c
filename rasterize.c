@@ -1,37 +1,32 @@
-#include <stdlib.h>
-#include <stdio.h>
 #include <math.h>
-#include "lodepng.h"
+#include <stdio.h>
+#include <stdlib.h>
 
-typedef struct point
-{
+#include "lib/lodepng.h"
+
+typedef struct point {
   float x, y;
   struct point *next;
 } point;
 
-void free_list(point *l)
-{
-  if (l)
-  {
+void free_list(point *l) {
+  if (l) {
     free_list(l->next);
     free(l);
   }
 }
 
-typedef struct point_list
-{
+typedef struct point_list {
   point *head;
   point *tail;
 } point_list;
 
-void clear(point_list *l)
-{
+void clear(point_list *l) {
   free_list(l->head);
   l->head = l->tail = NULL;
 }
 
-void add_point(point_list *l, float x, float y)
-{
+void add_point(point_list *l, float x, float y) {
   point *p = calloc(1, sizeof(point));
   p->x = x;
   p->y = y;
@@ -42,42 +37,32 @@ void add_point(point_list *l, float x, float y)
     l->tail = l->tail->next = p;
 }
 
-typedef struct edge
-{
+typedef struct edge {
   float y_start, y_end, x, k;
   int winding;
   struct edge *next;
 } edge;
 
-typedef struct edge_list
-{
+typedef struct edge_list {
   edge *head;
   edge *tail;
 } edge_list;
 
-void append(edge_list *l, edge *e)
-{
+void append(edge_list *l, edge *e) {
   if (!l->head)
     l->head = l->tail = e;
   else
     l->tail = l->tail->next = e;
 }
 
-void add(edge_list *l, point *a, point *b)
-{
-  if (a->y == b->y)
-    return;
-
+void add(edge_list *l, point *a, point *b) {
   edge *e = calloc(1, sizeof(edge));
-  if (a->y > b->y)
-  {
+  if (a->y > b->y) {
     e->winding = 1;
     point *tmp = a;
     a = b;
     b = tmp;
-  }
-  else
-  {
+  } else {
     e->winding = -1;
   }
   e->y_start = a->y;
@@ -87,10 +72,8 @@ void add(edge_list *l, point *a, point *b)
   append(l, e);
 }
 
-edge *pop_head(edge_list *l)
-{
-  if (!l->head)
-    return NULL;
+edge *pop_head(edge_list *l) {
+  if (!l->head) return NULL;
 
   edge *popped = l->head;
 
@@ -103,18 +86,15 @@ edge *pop_head(edge_list *l)
   return popped;
 }
 
-void quick_sort(edge_list *l, float (*key_func)(edge *))
-{
-  if (!l->head)
-    return;
+void quick_sort(edge_list *l, float (*key_func)(edge *)) {
+  if (!l->head) return;
 
   edge_list left = {0}, right = {0};
   edge *pivot = l->head;
 
   edge *e = pivot->next;
   pivot->next = NULL;
-  while (e)
-  {
+  while (e) {
     edge *next = e->next;
     e->next = NULL;
     if (key_func(e) < key_func(pivot))
@@ -127,54 +107,38 @@ void quick_sort(edge_list *l, float (*key_func)(edge *))
   quick_sort(&left, key_func);
   quick_sort(&right, key_func);
 
-  if (left.head)
-  {
+  if (left.head) {
     l->head = left.head;
     left.tail->next = pivot;
-  }
-  else
-  {
+  } else {
     l->head = pivot;
   }
 
-  if (right.tail)
-  {
+  if (right.tail) {
     l->tail = right.tail;
     pivot->next = right.head;
-  }
-  else
-  {
+  } else {
     l->tail = pivot;
   }
 }
 
-float by_x(edge *e)
-{
-  return e->x;
-}
+float by_x(edge *e) { return e->x; }
 
-float by_y_start(edge *e)
-{
-  return e->y_start;
-}
+float by_y_start(edge *e) { return e->y_start; }
 
-typedef struct polygon
-{
+typedef struct polygon {
   int color;
   point_list vertices;
 } polygon;
 
 #define SCALE 2
 
-int read_polygon(polygon *p)
-{
+int read_polygon(polygon *p) {
   int n;
-  if (scanf("%x %d\n", &p->color, &n) == EOF)
-    return 0;
+  if (scanf("%x %d\n", &p->color, &n) == EOF) return 0;
 
   clear(&p->vertices);
-  while (n--)
-  {
+  while (n--) {
     float x, y;
     scanf("%f %f\n", &x, &y);
     add_point(&p->vertices, x * SCALE, y * SCALE);
@@ -184,40 +148,32 @@ int read_polygon(polygon *p)
 
 #define SIZE 2000
 
-void set_pixel(unsigned char *image, int x, int y, int color)
-{
-  if (x < 0 || x >= SIZE || y < 0 || y >= SIZE)
-    return;
+void set_pixel(unsigned char *image, int x, int y, int color) {
+  if (x < 0 || x >= SIZE || y < 0 || y >= SIZE) return;
   image[(y * SIZE + x) * 4] = color >> 16;
   image[(y * SIZE + x) * 4 + 1] = color >> 8;
   image[(y * SIZE + x) * 4 + 2] = color;
   image[(y * SIZE + x) * 4 + 3] = 0xff;
 }
 
-void rasterize(unsigned char *image, polygon *p)
-{
+void rasterize(unsigned char *image, polygon *p) {
   edge_list remaining = {0}, active = {0};
 
   add(&remaining, p->vertices.tail, p->vertices.head);
   for (point *v = p->vertices.head; v != p->vertices.tail; v = v->next)
     add(&remaining, v, v->next);
 
-  if (!remaining.head)
-    return;
+  if (!remaining.head) return;
 
   quick_sort(&remaining, by_y_start);
 
   int y = ceilf(remaining.head->y_start) - 1;
-  while (active.head || remaining.head)
-  {
+  while (active.head || remaining.head) {
     int cur_winding = 0;
     float prev_x = 0;
-    for (edge *e = active.head; e; e = e->next)
-    {
-      if (cur_winding)
-      {
-        for (int x = ceilf(prev_x); x < e->x; ++x)
-        {
+    for (edge *e = active.head; e; e = e->next) {
+      if (cur_winding) {
+        for (int x = ceilf(prev_x); x < e->x; ++x) {
           set_pixel(image, x, y, p->color);
         }
       }
@@ -228,30 +184,22 @@ void rasterize(unsigned char *image, polygon *p)
 
     edge *e = active.head;
     active.head = active.tail = NULL;
-    while (e)
-    {
+    while (e) {
       edge *next = e->next;
       e->next = NULL;
-      if (e->y_end <= y)
-      {
+      if (e->y_end <= y) {
         free(e);
-      }
-      else
-      {
+      } else {
         e->x += e->k;
         append(&active, e);
       }
       e = next;
     }
-    while (remaining.head && remaining.head->y_start <= y)
-    {
+    while (remaining.head && remaining.head->y_start <= y) {
       edge *e = pop_head(&remaining);
-      if (e->y_end <= y)
-      {
+      if (e->y_end <= y) {
         free(e);
-      }
-      else
-      {
+      } else {
         append(&active, e);
       }
     }
@@ -259,20 +207,16 @@ void rasterize(unsigned char *image, polygon *p)
   }
 }
 
-int main()
-{
-
+int main() {
   unsigned char *image = calloc(1, SIZE * SIZE * 4);
 
   polygon p = {0};
-  while (read_polygon(&p))
-  {
+  while (read_polygon(&p)) {
     rasterize(image, &p);
   }
 
   unsigned error = lodepng_encode32_file("out.png", image, SIZE, SIZE);
-  if (error)
-    printf("error %u: %s\n", error, lodepng_error_text(error));
+  if (error) printf("error %u: %s\n", error, lodepng_error_text(error));
   free(image);
   return 0;
 }

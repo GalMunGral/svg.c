@@ -1,6 +1,6 @@
 .vscode/
+*.o
 compile
 simplify
-render
+rasterize
 *.txt
-*.png

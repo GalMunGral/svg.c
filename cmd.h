@@ -1,5 +1,4 @@
-typedef enum
-{
+typedef enum {
   save,
   restore,
   stroke_width,
