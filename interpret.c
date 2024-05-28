@@ -92,6 +92,7 @@ int size(path *l) {
   for (vertex *p = l->head; p; p = p->next) ++n;
   return n;
 }
+
 typedef struct context {
   style *style;
   transform *transforms;
