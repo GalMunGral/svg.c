@@ -1,5 +1,5 @@
 run: all
-	./compile < tiger.svg | ./interpret 100 | ./rasterize
+	./compile < tiger.svg | ./interpret 20 | ./rasterize
 
 all: compile interpret rasterize 
 
