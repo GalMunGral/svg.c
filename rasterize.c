@@ -141,6 +141,7 @@ typedef struct polygon {
 int size = 900;
 int scale = 1;
 int aa = 1;
+int debug = 0;
 
 #define C(image, w, x, y, c) (image)[((y) * (w) + (x)) * 4 + (c)]
 
@@ -152,12 +153,16 @@ int read_polygon(polygon *p) {
   while (n--) {
     float x, y;
     scanf("%f %f\n", &x, &y);
-    add_point(&p->vertices, x * scale, y * scale * aa);
+    if (debug) {
+      add_point(&p->vertices, x * scale, y * scale);
+    } else {
+      add_point(&p->vertices, x * scale, y * scale * aa);
+    }
   }
   return 1;
 }
 
-void set_pixel(float *I, int w, int h, int x, int y, float r1, float g1,
+void put_pixel(float *I, int w, int h, int x, int y, float r1, float g1,
                float b1, float a1) {
   if (x < 0 || x >= w || y < 0 || y >= h) return;
 
@@ -187,8 +192,9 @@ void rasterize(float *image, polygon *p) {
   float b = (p->color & mask) / 255.0f;
 
   add(&remaining, p->vertices.tail, p->vertices.head);
-  for (point *v = p->vertices.head; v != p->vertices.tail; v = v->next)
+  for (point *v = p->vertices.head; v != p->vertices.tail; v = v->next) {
     add(&remaining, v, v->next);
+  }
 
   if (!remaining.head) return;
 
@@ -204,7 +210,7 @@ void rasterize(float *image, polygon *p) {
         int end = ceilf(e->x + 0.5);
         for (int x = start; x < end; ++x) {
           float a = overlap(x - 0.5, x + 0.5, prev_x, e->x);
-          set_pixel(image, w, h, x, y, r, g, b, a);
+          put_pixel(image, w, h, x, y, r, g, b, a);
         }
       }
       cur_winding += e->winding;
@@ -238,36 +244,54 @@ void rasterize(float *image, polygon *p) {
   }
 }
 
+void plot_vertices(unsigned char *image, polygon *p) {
+  int w = size * scale;
+  for (point *v = p->vertices.head; v; v = v->next) {
+    int x = v->x, y = v->y;
+    C(image, w, x, y, 0) = p->color >> 16;
+    C(image, w, x, y, 1) = p->color >> 8;
+    C(image, w, x, y, 2) = p->color;
+    C(image, w, x, y, 3) = 0xff;
+  }
+}
+
 int main(int argc, char *argv[]) {
   if (argc >= 2) sscanf(argv[1], "%d", &scale);
   if (argc >= 3) sscanf(argv[2], "%d", &aa);
+  if (argc >= 4) sscanf(argv[3], "%d", &debug);
 
   int w = size * scale, h = size * scale;
-
   polygon p = {0};
 
-  float *image = calloc(1, h * aa * w * 4 * sizeof(float));
-  while (read_polygon(&p)) {
-    rasterize(image, &p);
-  }
+  unsigned char *image = calloc(1, h * w * 4);
+  const char *filename = debug ? "debug.png" : "out.png";
 
-  unsigned char *raster = calloc(1, h * w * 4);
-  for (int y = 0; y < h; ++y) {
-    for (int x = 0; x < w; ++x) {
-      for (int c = 0; c < 4; ++c) {
-        float p = 0.0f;
-        for (int k = 0; k < aa; ++k) {
-          p += C(image, w, x, y * aa + k, c) / aa;
+  if (debug) {
+    while (read_polygon(&p)) {
+      plot_vertices(image, &p);
+    }
+  } else {
+    float *f_image = calloc(1, h * aa * w * 4 * sizeof(float));
+    while (read_polygon(&p)) {
+      rasterize(f_image, &p);
+    }
+    for (int y = 0; y < h; ++y) {
+      for (int x = 0; x < w; ++x) {
+        for (int c = 0; c < 4; ++c) {
+          float p = 0.0f;
+          for (int k = 0; k < aa; ++k) {
+            p += C(f_image, w, x, y * aa + k, c) / aa;
+          }
+          C(image, w, x, y, c) = p * 255.0f;
         }
-        C(raster, w, x, y, c) = p * 255.0f;
       }
     }
+    free(f_image);
   }
 
-  unsigned error = lodepng_encode32_file("out.png", raster, w, h);
+  unsigned error = lodepng_encode32_file(filename, image, w, h);
   if (error) printf("error %u: %s\n", error, lodepng_error_text(error));
-
   free(image);
-  free(raster);
+
   return 0;
 }

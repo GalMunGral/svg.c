@@ -7,6 +7,9 @@ debug/compile: compile
 debug/interpret: compile interpret
 	./compile < tiger.svg | ./interpret > interpret.out
 
+debug/rasterize: compile interpret rasterize
+	./compile < tiger.svg | ./interpret | ./rasterize 1 10 1
+
 all: compile interpret rasterize 
 
 lodepng.o: lib/lodepng.c
@@ -22,4 +25,4 @@ rasterize: rasterize.c lib/lodepng.o
 	gcc $^ -o $@
 
 clean:
-	rm -f compile interpret rasterize **/*.o *.txt
+	rm -f compile interpret rasterize **/*.o *.txt *.png *.out
