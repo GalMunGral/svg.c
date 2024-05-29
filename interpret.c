@@ -180,12 +180,25 @@ float bezier(float t, float v0, float v1, float v2, float v3) {
   return v0123;
 }
 
-int bezier_sampling_rate = 10;
+float bezier_sampling_rate = 1.0f;
+
+float dist(float x1, float y1, float x2, float y2) {
+  float dx = x2 - x1, dy = y2 - y1;
+  return sqrtf(dx * dx + dy * dy);
+}
 
 void approx_bezier(context *ctx, float x0, float y0, float x1, float y1,
                    float x2, float y2, float x3, float y3) {
-  for (int i = 0; i < bezier_sampling_rate; ++i) {
-    float t = (float)(i + 1) / bezier_sampling_rate;
+  // TODO: verify this method
+  float lower_bound = dist(x0, y0, x3, y3);
+  float upper_bound =
+      dist(x0, y0, x1, y1) + dist(x1, y1, x2, y2) + dist(x2, y2, x3, y3);
+  float approx_arc_len = (lower_bound + upper_bound) / 2.0;
+
+  int n = ceilf(approx_arc_len * bezier_sampling_rate);
+
+  for (int i = 0; i < n; ++i) {
+    float t = (float)(i + 1) / n;
     add_to_path(ctx, bezier(t, x0, x1, x2, x3), bezier(t, y0, y1, y2, y3));
   }
 }
@@ -203,10 +216,8 @@ void emit_line_segment(context *ctx, point a, point b) {
   printf("%f %f\n", b.x + dx, b.y + dy);
 }
 
-int circle_sampling_rate = 10;
-
 void emit_line_joint(context *ctx, point p) {
-  int n = circle_sampling_rate;
+  int n = 10;
   float r = ctx->style->stroke_width / 2;
 
   printf("%#x %d\n", ctx->style->stroke_color, n);
@@ -245,7 +256,7 @@ void stroke_path(context *ctx) {
   for (vertex *v = ctx->path.head; v != ctx->path.tail; v = v->next) {
     emit_line_segment(ctx, v->pos, v->next->pos);
   }
-  for (vertex *v = ctx->path.head->next; v != ctx->path.tail; v = v->next) {
+  for (vertex *v = ctx->path.head; v; v = v->next) {
     emit_line_joint(ctx, v->pos);
   }
 }
@@ -413,7 +424,9 @@ int exec_next_command(context *ctx) {
 }
 
 int main(int argc, char *argv[]) {
-  if (argc >= 2) sscanf(argv[1], "%d", &bezier_sampling_rate);
+  if (argc >= 2) {
+    sscanf(argv[1], "%f", &bezier_sampling_rate);
+  }
 
   context ctx = {0};
   ctx.style = calloc(1, sizeof(style));

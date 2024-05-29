@@ -4,6 +4,13 @@
 
 #include "lib/lodepng.h"
 
+float min(float a, float b) { return a < b ? a : b; }
+float max(float a, float b) { return a < b ? b : a; }
+
+float overlap(float start1, float end1, float start2, float end2) {
+  return max(0.0f, min(end1, end2) - max(start1, start2));
+}
+
 typedef struct point {
   float x, y;
   struct point *next;
@@ -131,7 +138,11 @@ typedef struct polygon {
   point_list vertices;
 } polygon;
 
-#define SCALE 2
+int size = 900;
+int scale = 1;
+int aa = 1;
+
+#define C(image, w, x, y, c) (image)[((y) * (w) + (x)) * 4 + (c)]
 
 int read_polygon(polygon *p) {
   int n;
@@ -141,23 +152,39 @@ int read_polygon(polygon *p) {
   while (n--) {
     float x, y;
     scanf("%f %f\n", &x, &y);
-    add_point(&p->vertices, x * SCALE, y * SCALE);
+    add_point(&p->vertices, x * scale, y * scale * aa);
   }
   return 1;
 }
 
-#define SIZE 2000
+void set_pixel(float *I, int w, int h, int x, int y, float r1, float g1,
+               float b1, float a1) {
+  if (x < 0 || x >= w || y < 0 || y >= h) return;
 
-void set_pixel(unsigned char *image, int x, int y, int color) {
-  if (x < 0 || x >= SIZE || y < 0 || y >= SIZE) return;
-  image[(y * SIZE + x) * 4] = color >> 16;
-  image[(y * SIZE + x) * 4 + 1] = color >> 8;
-  image[(y * SIZE + x) * 4 + 2] = color;
-  image[(y * SIZE + x) * 4 + 3] = 0xff;
+  float r2 = C(I, w, x, y, 0);
+  float g2 = C(I, w, x, y, 1);
+  float b2 = C(I, w, x, y, 2);
+  float a2 = C(I, w, x, y, 3);
+
+  float a = a1 + a2 * (1 - a1);
+  if (a == 0) return;
+
+  float w1 = a1 / a, w2 = a2 * (1 - a1) / a;
+  C(I, w, x, y, 0) = r1 * w1 + r2 * w2;
+  C(I, w, x, y, 1) = g1 * w1 + g2 * w2;
+  C(I, w, x, y, 2) = b1 * w1 + b2 * w2;
+  C(I, w, x, y, 3) = a;
 }
 
-void rasterize(unsigned char *image, polygon *p) {
+void rasterize(float *image, polygon *p) {
+  int w = size * scale, h = size * scale * aa;
+
   edge_list remaining = {0}, active = {0};
+
+  int mask = (1 << 8) - 1;
+  float r = (p->color >> 16 & mask) / 255.0f;
+  float g = (p->color >> 8 & mask) / 255.0f;
+  float b = (p->color & mask) / 255.0f;
 
   add(&remaining, p->vertices.tail, p->vertices.head);
   for (point *v = p->vertices.head; v != p->vertices.tail; v = v->next)
@@ -173,13 +200,17 @@ void rasterize(unsigned char *image, polygon *p) {
     float prev_x = 0;
     for (edge *e = active.head; e; e = e->next) {
       if (cur_winding) {
-        for (int x = ceilf(prev_x); x < e->x; ++x) {
-          set_pixel(image, x, y, p->color);
+        int start = ceilf(prev_x - 0.5);
+        int end = ceilf(e->x + 0.5);
+        for (int x = start; x < end; ++x) {
+          float a = overlap(x - 0.5, x + 0.5, prev_x, e->x);
+          set_pixel(image, w, h, x, y, r, g, b, a);
         }
       }
       cur_winding += e->winding;
       prev_x = e->x;
     }
+
     ++y;
 
     edge *e = active.head;
@@ -207,16 +238,36 @@ void rasterize(unsigned char *image, polygon *p) {
   }
 }
 
-int main() {
-  unsigned char *image = calloc(1, SIZE * SIZE * 4);
+int main(int argc, char *argv[]) {
+  if (argc >= 2) sscanf(argv[1], "%d", &scale);
+  if (argc >= 3) sscanf(argv[2], "%d", &aa);
+
+  int w = size * scale, h = size * scale;
 
   polygon p = {0};
+
+  float *image = calloc(1, h * aa * w * 4 * sizeof(float));
   while (read_polygon(&p)) {
     rasterize(image, &p);
   }
 
-  unsigned error = lodepng_encode32_file("out.png", image, SIZE, SIZE);
+  unsigned char *raster = calloc(1, h * w * 4);
+  for (int y = 0; y < h; ++y) {
+    for (int x = 0; x < w; ++x) {
+      for (int c = 0; c < 4; ++c) {
+        float p = 0.0f;
+        for (int k = 0; k < aa; ++k) {
+          p += C(image, w, x, y * aa + k, c) / aa;
+        }
+        C(raster, w, x, y, c) = p * 255.0f;
+      }
+    }
+  }
+
+  unsigned error = lodepng_encode32_file("out.png", raster, w, h);
   if (error) printf("error %u: %s\n", error, lodepng_error_text(error));
+
   free(image);
+  free(raster);
   return 0;
 }
