@@ -1,5 +1,5 @@
 run: all
-	./compile < tiger.svg | ./interpret | ./rasterize 4 5
+	./compile < tiger.svg | ./interpret | ./rasterize 1 10
 
 debug/compile: compile
 	./compile < tiger.svg > compile.out
