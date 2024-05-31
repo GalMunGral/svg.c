@@ -237,6 +237,7 @@ void rasterize(float *image, polygon *p) {
       if (e->y_end <= y) {
         free(e);
       } else {
+        e->x += e->k * (y - e->y_start);
         append(&active, e);
       }
     }
