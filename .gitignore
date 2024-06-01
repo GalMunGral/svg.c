@@ -4,4 +4,3 @@
 compile
 interpret
 rasterize
-*.txt

@@ -312,11 +312,9 @@ void write_bmp(unsigned char *pixel_data, int w, int h, const char *filename) {
   DIB_header.bit_count = 32;
   DIB_header.alpha_mask = 0xff000000;
 
-  FILE *file = fopen(filename, "wb");
-  fwrite(&file_header, sizeof(BITMAPFILEHEADER), 1, file);
-  fwrite(&DIB_header, sizeof(BITMAPV4HEADER), 1, file);
-  fwrite(pixel_data, 4, w * h, file);
-  fclose(file);
+  fwrite(&file_header, sizeof(BITMAPFILEHEADER), 1, stdout);
+  fwrite(&DIB_header, sizeof(BITMAPV4HEADER), 1, stdout);
+  fwrite(pixel_data, 4, w * h, stdout);
 }
 
 int main(int argc, char *argv[]) {
