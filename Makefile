@@ -12,17 +12,14 @@ debug/compile: compile
 
 all: compile interpret rasterize 
 
-lodepng.o: lib/lodepng.c
-	gcc lib/lodepng.c -c -o $@
-
 compile: compile.c
 	gcc -O3 $^ -o $@
 
 interpret: interpret.c
 	gcc -O3 $^ -o $@
 
-rasterize: rasterize.c lib/lodepng.o
+rasterize: rasterize.c
 	gcc -O3 $^ -o $@
 
 clean:
-	rm -f compile interpret rasterize **/*.o *.txt *.png *.out
+	rm -f compile interpret rasterize *.o *.bmp *.out

@@ -2,8 +2,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "lib/lodepng.h"
-
 float min(float a, float b) { return a < b ? a : b; }
 float max(float a, float b) { return a < b ? b : a; }
 
@@ -166,18 +164,18 @@ void put_pixel(float *I, int w, int h, int x, int y, float r1, float g1,
                float b1, float a1) {
   if (x < 0 || x >= w || y < 0 || y >= h) return;
 
-  float r2 = C(I, w, x, y, 0);
+  float b2 = C(I, w, x, y, 0);
   float g2 = C(I, w, x, y, 1);
-  float b2 = C(I, w, x, y, 2);
+  float r2 = C(I, w, x, y, 2);
   float a2 = C(I, w, x, y, 3);
 
   float a = a1 + a2 * (1 - a1);
   if (a == 0) return;
 
   float w1 = a1 / a, w2 = a2 * (1 - a1) / a;
-  C(I, w, x, y, 0) = r1 * w1 + r2 * w2;
+  C(I, w, x, y, 0) = b1 * w1 + b2 * w2;
   C(I, w, x, y, 1) = g1 * w1 + g2 * w2;
-  C(I, w, x, y, 2) = b1 * w1 + b2 * w2;
+  C(I, w, x, y, 2) = r1 * w1 + r2 * w2;
   C(I, w, x, y, 3) = a;
 }
 
@@ -246,14 +244,79 @@ void rasterize(float *image, polygon *p) {
 }
 
 void plot_vertices(unsigned char *image, polygon *p) {
-  int w = size * scale;
+  int w = size * scale, h = size * scale;
   for (point *v = p->vertices.head; v; v = v->next) {
     int x = v->x, y = v->y;
-    C(image, w, x, y, 0) = p->color >> 16;
+    C(image, w, x, y, 0) = p->color;
     C(image, w, x, y, 1) = p->color >> 8;
-    C(image, w, x, y, 2) = p->color;
+    C(image, w, x, y, 2) = p->color >> 16;
     C(image, w, x, y, 3) = 0xff;
   }
+}
+
+typedef struct __attribute__((packed)) BITMAPFILEHEADER {
+  uint16_t type;
+  uint32_t size;
+  uint16_t reserved1;
+  uint16_t reserved2;
+  uint32_t offset;
+} BITMAPFILEHEADER;
+
+typedef struct __attribute__((packed)) CIEXYZTRIPLE {
+  uint32_t red_X;
+  uint32_t red_Y;
+  uint32_t red_Z;
+  uint32_t green_X;
+  uint32_t green_Y;
+  uint32_t green_Z;
+  uint32_t blue_X;
+  uint32_t blue_Y;
+  uint32_t blue_Z;
+} CIEXYZTRIPLE;
+
+typedef struct __attribute__((packed)) BITMAPV4HEADER {
+  uint32_t size;
+  uint32_t width;
+  uint32_t height;
+  uint16_t planes;
+  uint16_t bit_count;
+  uint32_t compression;
+  uint32_t size_image;
+  uint32_t x_res;
+  uint32_t y_res;
+  uint32_t clr_used;
+  uint32_t clr_important;
+  uint32_t red_mask;
+  uint32_t green_mask;
+  uint32_t blue_mask;
+  uint32_t alpha_mask;
+  uint32_t CS_type;
+  CIEXYZTRIPLE endpoints;
+  uint32_t gamma_red;
+  uint32_t gamma_green;
+  uint32_t gamme_blue;
+} BITMAPV4HEADER;
+
+void write_bmp(unsigned char *pixel_data, int w, int h, const char *filename) {
+  BITMAPFILEHEADER file_header = {0};
+  file_header.type = 0x4d42;
+  file_header.size =
+      sizeof(BITMAPFILEHEADER) + sizeof(BITMAPV4HEADER) + h * w * 4;
+  file_header.offset = sizeof(BITMAPFILEHEADER) + sizeof(BITMAPV4HEADER);
+
+  BITMAPV4HEADER DIB_header = {0};
+  DIB_header.size = sizeof(BITMAPV4HEADER);
+  DIB_header.width = w;
+  DIB_header.height = -h;
+  DIB_header.planes = 1;
+  DIB_header.bit_count = 32;
+  DIB_header.alpha_mask = 0xff000000;
+
+  FILE *file = fopen(filename, "wb");
+  fwrite(&file_header, sizeof(BITMAPFILEHEADER), 1, file);
+  fwrite(&DIB_header, sizeof(BITMAPV4HEADER), 1, file);
+  fwrite(pixel_data, 4, w * h, file);
+  fclose(file);
 }
 
 int main(int argc, char *argv[]) {
@@ -262,20 +325,17 @@ int main(int argc, char *argv[]) {
   if (argc >= 4) sscanf(argv[3], "%d", &debug);
 
   int w = size * scale, h = size * scale;
+  unsigned char *image = calloc(1, h * w * 4);
+
   polygon p = {0};
 
-  unsigned char *image = calloc(1, h * w * 4);
-  const char *filename = debug ? "debug.png" : "out.png";
-
   if (debug) {
-    while (read_polygon(&p)) {
-      plot_vertices(image, &p);
-    }
+    while (read_polygon(&p)) plot_vertices(image, &p);
+    write_bmp(image, w, h, "debug.bmp");
   } else {
     float *f_image = calloc(1, h * aa * w * 4 * sizeof(float));
-    while (read_polygon(&p)) {
-      rasterize(f_image, &p);
-    }
+    while (read_polygon(&p)) rasterize(f_image, &p);
+
     for (int y = 0; y < h; ++y) {
       for (int x = 0; x < w; ++x) {
         for (int c = 0; c < 4; ++c) {
@@ -287,12 +347,9 @@ int main(int argc, char *argv[]) {
         }
       }
     }
+    write_bmp(image, w, h, "out.bmp");
     free(f_image);
   }
-
-  unsigned error = lodepng_encode32_file(filename, image, w, h);
-  if (error) printf("error %u: %s\n", error, lodepng_error_text(error));
   free(image);
-
   return 0;
 }
