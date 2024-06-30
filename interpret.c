@@ -170,37 +170,40 @@ void reset_path(context *ctx) {
   ctx->control = *current_point(ctx);
 }
 
-float bezier(float t, float v0, float v1, float v2, float v3) {
-  float v01 = (1 - t) * v0 + t * v1;
-  float v12 = (1 - t) * v1 + t * v2;
-  float v23 = (1 - t) * v2 + t * v3;
-  float v012 = (1 - t) * v01 + t * v12;
-  float v123 = (1 - t) * v12 + t * v23;
-  float v0123 = (1 - t) * v012 + t * v123;
-  return v0123;
-}
-
-float bezier_sampling_rate = 1.0f;
-
 float dist(float x1, float y1, float x2, float y2) {
   float dx = x2 - x1, dy = y2 - y1;
   return sqrtf(dx * dx + dy * dy);
 }
 
+const float epsilon = 0.01;
+
 void approx_bezier(context *ctx, float x0, float y0, float x1, float y1,
                    float x2, float y2, float x3, float y3) {
-  // TODO: verify this method
   float lower_bound = dist(x0, y0, x3, y3);
   float upper_bound =
-      dist(x0, y0, x1, y1) + dist(x1, y1, x2, y2) + dist(x2, y2, x3, y3);
-  float approx_arc_len = (lower_bound + upper_bound) / 2.0;
+      (dist(x0, y0, x1, y1) + dist(x1, y1, x2, y2) + dist(x2, y2, x3, y3));
 
-  int n = ceilf(approx_arc_len * bezier_sampling_rate);
-
-  for (int i = 0; i < n; ++i) {
-    float t = (float)(i + 1) / n;
-    add_to_path(ctx, bezier(t, x0, x1, x2, x3), bezier(t, y0, y1, y2, y3));
+  if (upper_bound - lower_bound < epsilon) {
+    add_to_path(ctx, x3, y3);
+    return;
   }
+
+  float x01 = .5 * x0 + .5 * x1;
+  float x12 = .5 * x1 + .5 * x2;
+  float x23 = .5 * x2 + .5 * x3;
+  float x012 = .5 * x01 + .5 * x12;
+  float x123 = .5 * x12 + .5 * x23;
+  float x0123 = .5 * x012 + .5 * x123;
+
+  float y01 = .5 * y0 + .5 * y1;
+  float y12 = .5 * y1 + .5 * y2;
+  float y23 = .5 * y2 + .5 * y3;
+  float y012 = .5 * y01 + .5 * y12;
+  float y123 = .5 * y12 + .5 * y23;
+  float y0123 = .5 * y012 + .5 * y123;
+
+  approx_bezier(ctx, x0, y0, x01, y01, x012, y012, x0123, y0123);
+  approx_bezier(ctx, x0123, y0123, x123, y123, x23, y23, x3, y3);
 }
 
 void emit_line_segment(context *ctx, point a, point b) {
@@ -424,10 +427,6 @@ int exec_next_command(context *ctx) {
 }
 
 int main(int argc, char *argv[]) {
-  if (argc >= 2) {
-    sscanf(argv[1], "%f", &bezier_sampling_rate);
-  }
-
   context ctx = {0};
   ctx.style = calloc(1, sizeof(style));
   ctx.style->fill_color = 0;
