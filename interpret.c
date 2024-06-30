@@ -175,15 +175,22 @@ float dist(float x1, float y1, float x2, float y2) {
   return sqrtf(dx * dx + dy * dy);
 }
 
-const float epsilon = 0.01;
+const float epsilon = 1;
+
+float max(float a, float b) { return a < b ? b : a; }
+
+float flatness(float x0, float y0, float x1, float y1, float x2, float y2,
+               float x3, float y3) {
+  float ux = 3.0 * x1 - 2.0 * x0 - x3;
+  float uy = 3.0 * y1 - 2.0 * y0 - y3;
+  float vx = 3.0 * x2 - 2.0 * x3 - x0;
+  float vy = 3.0 * y2 - 2.0 * y3 - y0;
+  return max(ux * ux, vx * vx) + max(uy * uy, vy * vy);
+}
 
 void approx_bezier(context *ctx, float x0, float y0, float x1, float y1,
                    float x2, float y2, float x3, float y3) {
-  float lower_bound = dist(x0, y0, x3, y3);
-  float upper_bound =
-      (dist(x0, y0, x1, y1) + dist(x1, y1, x2, y2) + dist(x2, y2, x3, y3));
-
-  if (upper_bound - lower_bound < epsilon) {
+  if (flatness(x0, y0, x1, y1, x2, y2, x3, y3) < epsilon) {
     add_to_path(ctx, x3, y3);
     return;
   }
