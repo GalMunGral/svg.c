@@ -4,3 +4,5 @@
 compile
 interpret
 rasterize
+test/*.out
+test/*.bmp

@@ -1,5 +1,5 @@
 run: all
-	./compile < test/tiger.svg | ./interpret | ./rasterize 2 5 > test/out.bmp
+	./compile < test/tiger.svg | tee test/compile.out | ./interpret | tee test/interpret.out | ./rasterize 2 5 > test/out.bmp
 
 debug/rasterize: compile interpret rasterize
 	./compile < test/tiger.svg | ./interpret | ./rasterize 2 5 1 > test/debug.bmp
